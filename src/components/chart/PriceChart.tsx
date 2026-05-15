@@ -14,7 +14,7 @@ import {
 } from "lightweight-charts";
 import { fetchKlines } from "@/lib/binance/rest";
 import { getBinanceWS } from "@/lib/binance/ws";
-import { ema, rsi, macd } from "@/lib/indicators";
+import { ema, rsi, macd, atr, supertrend, vwap } from "@/lib/indicators";
 import type { Candle, Timeframe } from "@/lib/binance/types";
 import {
   INDICATOR_COLORS,
@@ -84,6 +84,10 @@ interface LastValues {
   macdSignal?: number;
   macdHist?: number;
   volume?: number;
+  atr?: number;
+  supertrend?: number;
+  supertrendDir?: 1 | -1;
+  vwap?: number;
 }
 
 interface PaneOffset {
@@ -105,6 +109,9 @@ export function PriceChart({ symbol, timeframe }: Props) {
   const macdRef = useRef<ISeriesApi<"Line"> | null>(null);
   const macdSignalRef = useRef<ISeriesApi<"Line"> | null>(null);
   const macdHistRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const atrRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const supertrendRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const vwapRef = useRef<ISeriesApi<"Line"> | null>(null);
   const candlesRef = useRef<Candle[]>([]);
   const priceLinesMapRef = useRef<Map<string, IPriceLine>>(new Map());
 
@@ -328,6 +335,9 @@ export function PriceChart({ symbol, timeframe }: Props) {
       macdRef.current = null;
       macdSignalRef.current = null;
       macdHistRef.current = null;
+      atrRef.current = null;
+      supertrendRef.current = null;
+      vwapRef.current = null;
     };
   }, []);
 
@@ -404,7 +414,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
       try {
         chartRef.current.panes()[1]?.setStretchFactor(1);
         chartRef.current.panes()[0]?.setStretchFactor(3);
-      } catch {}
+      } catch { }
       updateRSI();
     } else if (!indicators.rsi && rsiRef.current && chartRef.current) {
       chartRef.current.removeSeries(rsiRef.current);
@@ -454,7 +464,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
       try {
         chartRef.current.panes()[paneIndex]?.setStretchFactor(1);
         chartRef.current.panes()[0]?.setStretchFactor(3);
-      } catch {}
+      } catch { }
       updateMACD();
     } else if (!indicators.macd && macdRef.current && chartRef.current) {
       if (macdRef.current) chartRef.current.removeSeries(macdRef.current);
@@ -467,6 +477,73 @@ export function PriceChart({ symbol, timeframe }: Props) {
     requestAnimationFrame(() => recomputePaneOffsets());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indicators.macd, indicators.rsi]);
+
+  // VWAP — línea en el pane principal
+  useEffect(() => {
+    if (!chartRef.current) return;
+    if (indicators.vwap && !vwapRef.current) {
+      vwapRef.current = chartRef.current.addSeries(LineSeries, {
+        color: INDICATOR_COLORS.vwap,
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      updateVWAP();
+    } else if (!indicators.vwap && vwapRef.current && chartRef.current) {
+      chartRef.current.removeSeries(vwapRef.current);
+      vwapRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indicators.vwap]);
+
+  // Supertrend — línea en el pane principal (color dinámico verde/rojo según dirección)
+  useEffect(() => {
+    if (!chartRef.current) return;
+    if (indicators.supertrend && !supertrendRef.current) {
+      supertrendRef.current = chartRef.current.addSeries(LineSeries, {
+        color: INDICATOR_COLORS.supertrend,
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      updateSupertrend();
+    } else if (!indicators.supertrend && supertrendRef.current && chartRef.current) {
+      chartRef.current.removeSeries(supertrendRef.current);
+      supertrendRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indicators.supertrend]);
+
+  // ATR — pane separado abajo
+  useEffect(() => {
+    if (!chartRef.current) return;
+    if (indicators.atr && !atrRef.current) {
+      const baseIdx = 1;
+      const rsiOffset = indicators.rsi ? 1 : 0;
+      const macdOffset = indicators.macd ? 1 : 0;
+      const paneIndex = baseIdx + rsiOffset + macdOffset;
+      atrRef.current = chartRef.current.addSeries(
+        LineSeries,
+        {
+          color: INDICATOR_COLORS.atr,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        },
+        paneIndex,
+      );
+      try {
+        chartRef.current.panes()[paneIndex]?.setStretchFactor(1);
+        chartRef.current.panes()[0]?.setStretchFactor(3);
+      } catch { }
+      updateATR();
+    } else if (!indicators.atr && atrRef.current && chartRef.current) {
+      chartRef.current.removeSeries(atrRef.current);
+      atrRef.current = null;
+    }
+    requestAnimationFrame(() => recomputePaneOffsets());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indicators.atr, indicators.rsi, indicators.macd]);
 
   // Visibility — eye toggle (hidden state) + enabled state combined
   useEffect(() => {
@@ -481,6 +558,9 @@ export function PriceChart({ symbol, timeframe }: Props) {
     if (macdSignalRef.current) macdSignalRef.current.applyOptions({ visible: v("macd") });
     if (macdHistRef.current) macdHistRef.current.applyOptions({ visible: v("macd") });
     if (volumeSeriesRef.current) volumeSeriesRef.current.applyOptions({ visible: v("volume") });
+    if (atrRef.current) atrRef.current.applyOptions({ visible: v("atr") });
+    if (supertrendRef.current) supertrendRef.current.applyOptions({ visible: v("supertrend") });
+    if (vwapRef.current) vwapRef.current.applyOptions({ visible: v("vwap") });
   }, [indicators, hidden]);
 
   // Recompute indicators when config changes (periods)
@@ -496,6 +576,14 @@ export function PriceChart({ symbol, timeframe }: Props) {
     updateMACD();
   }, [config.macdFast, config.macdSlow, config.macdSignal]);
 
+  useEffect(() => {
+    updateATR();
+  }, [config.atrPeriod]);
+
+  useEffect(() => {
+    updateSupertrend();
+  }, [config.supertrendPeriod, config.supertrendMultiplier]);
+
   // Sync price lines from store to the candle series
   useEffect(() => {
     const series = candleSeriesRef.current;
@@ -508,7 +596,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
       if (!activeIds.has(id)) {
         try {
           series.removePriceLine(apiLine);
-        } catch {}
+        } catch { }
         map.delete(id);
       }
     }
@@ -624,6 +712,49 @@ export function PriceChart({ symbol, timeframe }: Props) {
     }));
   }
 
+  function updateATR() {
+    const c = candlesRef.current;
+    if (c.length === 0 || !atrRef.current) return;
+    const cfg = configRef.current;
+    const data = atr(c, cfg.atrPeriod).map((p) => ({
+      time: p.time as UTCTimestamp,
+      value: p.value,
+    }));
+    atrRef.current.setData(data);
+    setLastValues((prev) => ({ ...prev, atr: data.at(-1)?.value }));
+  }
+
+  function updateSupertrend() {
+    const c = candlesRef.current;
+    if (c.length === 0 || !supertrendRef.current) return;
+    const cfg = configRef.current;
+    const data = supertrend(c, cfg.supertrendPeriod, cfg.supertrendMultiplier);
+    supertrendRef.current.setData(
+      data.map((p) => ({
+        time: p.time as UTCTimestamp,
+        value: p.value,
+        color: p.direction === 1 ? TV_COLORS.green : TV_COLORS.red,
+      })),
+    );
+    const last = data.at(-1);
+    setLastValues((prev) => ({
+      ...prev,
+      supertrend: last?.value,
+      supertrendDir: last?.direction,
+    }));
+  }
+
+  function updateVWAP() {
+    const c = candlesRef.current;
+    if (c.length === 0 || !vwapRef.current) return;
+    const data = vwap(c).map((p) => ({
+      time: p.time as UTCTimestamp,
+      value: p.value,
+    }));
+    vwapRef.current.setData(data);
+    setLastValues((prev) => ({ ...prev, vwap: data.at(-1)?.value }));
+  }
+
   // Load historical data + subscribe live
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -657,6 +788,9 @@ export function PriceChart({ symbol, timeframe }: Props) {
         updateEMAs();
         updateRSI();
         updateMACD();
+        updateATR();
+        updateSupertrend();
+        updateVWAP();
         chartRef.current?.timeScale().fitContent();
         requestAnimationFrame(() => recomputePaneOffsets());
 
@@ -699,10 +833,15 @@ export function PriceChart({ symbol, timeframe }: Props) {
                 color: k.close >= k.open ? `${TV_COLORS.green}66` : `${TV_COLORS.red}66`,
               });
             }
+            // Re-compute indicators on every tick (cheap for 1000 candles)
             updateEMAs();
             updateRSI();
             updateMACD();
-            const prev = arr[arr.length - 2] ?? lastCandle;
+            updateATR();
+            updateSupertrend();
+            updateVWAP();
+
+            const prev = arr[arr.length - 2];
             setLastPrice({
               value: k.close,
               pct: prev && prev.close !== 0 ? ((k.close - prev.close) / prev.close) * 100 : 0,
@@ -727,12 +866,14 @@ export function PriceChart({ symbol, timeframe }: Props) {
 
   // Helpers for pill rendering
   const isShown = (key: IndicatorKey) =>
-    indicators[key] && (key === "volume" || true); // always renderable if enabled
+    indicators[key] && (key === "volume" || true);
   void isShown;
 
   // Determine which pane each indicator lives in (based on current layout)
   const rsiPaneIdx = 1;
   const macdPaneIdx = indicators.rsi ? 2 : 1;
+  const atrPaneIdx =
+    1 + (indicators.rsi ? 1 : 0) + (indicators.macd ? 1 : 0);
 
   let measureRender: React.ReactNode = null;
   if (
@@ -790,7 +931,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
         style={{ top: (paneOffsets[0]?.top ?? 0) + 12, left: 12 }}
         className="pointer-events-none absolute z-10 flex flex-col gap-1 text-xs tabular-nums"
       >
-        {/* Row 1: symbol info + OHLC stats inline on hover (fixed height, never wraps) */}
+        {/* Row 1: symbol info + OHLC stats inline on hover */}
         <div className="flex h-5 flex-nowrap items-center gap-x-3 overflow-hidden whitespace-nowrap">
           <div className="flex shrink-0 items-center gap-2 text-[13px] font-semibold">
             <span className="text-tv-text">{symbol}</span>
@@ -824,7 +965,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
           )}
         </div>
 
-        {/* Row 2: big live price (always present — reserves space even while loading) */}
+        {/* Row 2: big live price */}
         <div className="flex h-7 items-center gap-2">
           {lastPrice ? (
             <>
@@ -841,7 +982,7 @@ export function PriceChart({ symbol, timeframe }: Props) {
           )}
         </div>
 
-        {/* Indicator pills for the main pane (fixed position below price) */}
+        {/* Indicator pills for the main pane */}
         <div className="mt-1 flex flex-col items-start gap-1">
           {indicators.ema20 && (
             <IndicatorPill
@@ -887,6 +1028,38 @@ export function PriceChart({ symbol, timeframe }: Props) {
               onRemove={() => removeIndicator("volume")}
             />
           )}
+          {indicators.vwap && (
+            <IndicatorPill
+              name="VWAP"
+              value={lastValues.vwap !== undefined ? formatPrice(lastValues.vwap) : undefined}
+              color={INDICATOR_COLORS.vwap}
+              hidden={hidden.vwap}
+              onToggleHide={() => toggleHidden("vwap")}
+              onSettings={() => setSettingsTarget("vwap")}
+              onRemove={() => removeIndicator("vwap")}
+            />
+          )}
+          {indicators.supertrend && (
+            <IndicatorPill
+              name={`Supertrend ${config.supertrendPeriod}, ${config.supertrendMultiplier}`}
+              value={
+                lastValues.supertrend !== undefined
+                  ? `${formatPrice(lastValues.supertrend)} ${lastValues.supertrendDir === 1 ? "↑" : "↓"}`
+                  : undefined
+              }
+              color={
+                lastValues.supertrendDir === 1
+                  ? TV_COLORS.green
+                  : lastValues.supertrendDir === -1
+                    ? TV_COLORS.red
+                    : INDICATOR_COLORS.supertrend
+              }
+              hidden={hidden.supertrend}
+              onToggleHide={() => toggleHidden("supertrend")}
+              onSettings={() => setSettingsTarget("supertrend")}
+              onRemove={() => removeIndicator("supertrend")}
+            />
+          )}
         </div>
       </div>
 
@@ -926,6 +1099,24 @@ export function PriceChart({ symbol, timeframe }: Props) {
             onToggleHide={() => toggleHidden("macd")}
             onSettings={() => setSettingsTarget("macd")}
             onRemove={() => removeIndicator("macd")}
+          />
+        </div>
+      )}
+
+      {/* ATR pane label */}
+      {indicators.atr && paneOffsets[atrPaneIdx] && (
+        <div
+          style={{ top: paneOffsets[atrPaneIdx].top + 6, left: 12 }}
+          className="pointer-events-none absolute z-10"
+        >
+          <IndicatorPill
+            name={`ATR ${config.atrPeriod}`}
+            value={lastValues.atr !== undefined ? lastValues.atr.toFixed(2) : undefined}
+            color={INDICATOR_COLORS.atr}
+            hidden={hidden.atr}
+            onToggleHide={() => toggleHidden("atr")}
+            onSettings={() => setSettingsTarget("atr")}
+            onRemove={() => removeIndicator("atr")}
           />
         </div>
       )}

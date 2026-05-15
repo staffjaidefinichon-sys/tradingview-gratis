@@ -10,7 +10,10 @@ export type IndicatorKey =
   | "ema200"
   | "rsi"
   | "macd"
-  | "volume";
+  | "volume"
+  | "atr"
+  | "supertrend"
+  | "vwap";
 
 export type DrawingTool = "cursor" | "hline" | "measure" | "eraser";
 
@@ -28,6 +31,9 @@ export interface IndicatorConfig {
   macdFast: number;
   macdSlow: number;
   macdSignal: number;
+  atrPeriod: number;
+  supertrendPeriod: number;
+  supertrendMultiplier: number;
 }
 
 export const DEFAULT_CONFIG: IndicatorConfig = {
@@ -38,6 +44,9 @@ export const DEFAULT_CONFIG: IndicatorConfig = {
   macdFast: 12,
   macdSlow: 26,
   macdSignal: 9,
+  atrPeriod: 14,
+  supertrendPeriod: 10,
+  supertrendMultiplier: 3,
 };
 
 export const INDICATOR_COLORS: Record<IndicatorKey, string> = {
@@ -47,6 +56,9 @@ export const INDICATOR_COLORS: Record<IndicatorKey, string> = {
   rsi: "#ab47bc",
   macd: "#2962ff",
   volume: "#787b86",
+  atr: "#26c6da",
+  supertrend: "#26a69a",
+  vwap: "#e91e63",
 };
 
 export const DEFAULT_WATCHLIST = [
@@ -108,6 +120,9 @@ export const useChartStore = create<ChartState>()(
         rsi: true,
         macd: false,
         volume: true,
+        atr: false,
+        supertrend: false,
+        vwap: false,
       },
       hidden: {
         ema20: false,
@@ -116,6 +131,9 @@ export const useChartStore = create<ChartState>()(
         rsi: false,
         macd: false,
         volume: false,
+        atr: false,
+        supertrend: false,
+        vwap: false,
       },
       config: { ...DEFAULT_CONFIG },
       watchlist: DEFAULT_WATCHLIST,
